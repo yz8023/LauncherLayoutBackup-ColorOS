@@ -34,4 +34,8 @@ abstract class Page {
     /** 用户用系统文件选择器选定了目录。 */
     void onDirPicked(String path) {
     }
+
+    /** 用户用系统文件选择器选定了提取输出目录（SAF URI）。 */
+    void onExtractDirPicked(android.net.Uri uri) {
+    }
 }

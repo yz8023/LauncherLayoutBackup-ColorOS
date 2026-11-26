@@ -138,6 +138,31 @@ final class PageSettings extends Page {
                 }));
         c.addView(credit, UiKit.full(host, 8, 0));
 
+        // ---------- 桌面与热加载 ----------
+        c.addView(section("桌面生效与重启"));
+        LinearLayout restartCard = UiKit.card(host);
+        LinearLayout restartIn = UiKit.column(host);
+        UiKit.pad(host, restartIn, 16, 14, 14);
+        restartIn.addView(UiKit.rowSummary(host, "模块更新后无需重启手机！只需让桌面进程重新加载即可热生效。"));
+        LinearLayout rBtns = UiKit.row(host);
+        rBtns.addView(UiKit.filled(host, "热重载：快速重启桌面", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                UiLog.log("▶ 请求重启桌面进程（热重载模块）");
+                host.request(Const.ACTION_RESTART, null);
+            }
+        }), UiKit.weight(host, 1f, 0, 4));
+        rBtns.addView(UiKit.subtle(host, "Root 强制停止桌面", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                UiLog.log("▶ 执行 root 强杀桌面进程");
+                host.rootRestart();
+            }
+        }), UiKit.weight(host, 1f, 4, 0));
+        restartIn.addView(rBtns, UiKit.full(host, 10, 0));
+        restartCard.addView(restartIn);
+        c.addView(restartCard, UiKit.full(host, 8, 0));
+
         // ---------- 关于 ----------
         c.addView(section("关于"));
         LinearLayout about = UiKit.card(host);

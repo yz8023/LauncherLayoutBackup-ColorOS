@@ -198,8 +198,24 @@ final class PageBackup extends Page {
             final String g = host.grids.containsKey(name) ? host.grids.get(name) : "通用";
             final boolean same = g.equals(host.currentGrid);
 
-            t1.setText((newest ? "★ " : "") + (position + 1) + ". " + UiKit.prettyTime(name));
-            t2.setText("网格 " + g + (same ? "  ✓ 与当前一致" : "  ⚠️ 与当前不一致"));
+            String rel = UiKit.relativeTime(name);
+            String badge = newest ? "【最新备份】" : ("#" + (position + 1));
+            String timeStr = UiKit.prettyTime(name);
+            if (!rel.isEmpty()) {
+                timeStr = timeStr + " (" + rel + ")";
+            }
+
+            t1.setText(badge + " " + timeStr);
+            if (newest) {
+                t1.setTextColor(Theme.primary);
+                t1.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+            } else {
+                t1.setTextColor(Theme.onSurface);
+                t1.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
+            }
+
+            String gridText = "网格: " + g + (same ? " · 与当前布局一致" : " · ⚠️ 与当前网格不一致");
+            t2.setText(gridText);
             t2.setTextColor(same ? Theme.onSurfaceVariant : Theme.error);
 
             // ListView 复用，监听器每次重设（只剩一个按钮：恢复）

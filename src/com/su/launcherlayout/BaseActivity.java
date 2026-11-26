@@ -522,6 +522,7 @@ abstract class BaseActivity extends Activity {
     // ================================================================== 目录选择（共用）
 
     protected static final int REQ_TREE = 1001;
+    protected static final int REQ_EXTRACT_TREE = 1002;
 
     /** 打开系统文件选择器选目录（只接受手机内部存储）。 */
     protected void pickDir() {
@@ -540,9 +541,36 @@ abstract class BaseActivity extends Activity {
         }
     }
 
+    /** 打开系统文件选择器选提取输出目录（SAF，持久化授权）。 */
+    protected void pickExtractDir() {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            // 初始定位到 Download（用户确认一次即可）
+            try {
+                i.putExtra("android.provider.extra.INITIAL_URI",
+                        Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload"));
+            } catch (Throwable ignored) {
+            }
+            startActivityForResult(i, REQ_EXTRACT_TREE);
+        } catch (Throwable t) {
+            toast("没有可用的文件选择器： " + t);
+        }
+    }
+
+    /** 提取目录选定回调（子类可覆盖）。 */
+    protected void onExtractDirPicked(Uri uri) {
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_EXTRACT_TREE) {
+            if (data != null && data.getData() != null) {
+                onExtractDirPicked(data.getData());
+            }
+            return;
+        }
         if (requestCode != REQ_TREE || data == null || data.getData() == null) {
             return;
         }

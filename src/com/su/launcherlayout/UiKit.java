@@ -69,6 +69,49 @@ final class UiKit {
         return s;
     }
 
+    /** 计算相对时间：刚刚、X 分钟前、X 小时前、昨天、X 天前。 */
+    static String relativeTime(String dir) {
+        String s = shortName(dir);
+        try {
+            if (s.length() >= 15) {
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US);
+                java.util.Date d = sdf.parse(s.substring(0, 15));
+                if (d != null) {
+                    long diff = System.currentTimeMillis() - d.getTime();
+                    if (diff < 0) {
+                        return "刚刚";
+                    }
+                    long sec = diff / 1000;
+                    if (sec < 60) {
+                        return "刚刚";
+                    }
+                    long min = sec / 60;
+                    if (min < 60) {
+                        return min + " 分钟前";
+                    }
+                    long hour = min / 60;
+                    if (hour < 24) {
+                        return hour + " 小时前";
+                    }
+                    long day = hour / 24;
+                    if (day == 1) {
+                        return "昨天";
+                    }
+                    if (day < 30) {
+                        return day + " 天前";
+                    }
+                    long month = day / 30;
+                    if (month < 12) {
+                        return month + " 个月前";
+                    }
+                    return (month / 12) + " 年前";
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
+    }
+
     /** 毫秒时间戳字符串 -> yyyy-MM-dd HH:mm；<=0 用 zeroText。 */
     static String fmtTs(String v, String zeroText) {
         if (v == null) {

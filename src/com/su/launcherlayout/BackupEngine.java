@@ -1,6 +1,7 @@
 package com.su.launcherlayout;
 
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
@@ -1604,6 +1605,244 @@ final class BackupEngine {
         } finally {
             closeQuietly(in);
         }
+    }
+
+    // =====================================================================
+    // 分组列表（供分组提取 APK：文件夹分组 + 应用包名）
+    // =====================================================================
+
+    /** 一条 favorites 记录（仅保留分组提取需要的字段）。 */
+    private static final class FavRow {
+        long id;
+        String title;
+        String intent;
+        long container;
+        int itemType;
+        int screen;
+        int cellX;
+        int cellY;
+    }
+
+    /**
+     * 列出桌面分组与应用：返回 items 为 {@code 分组名\t应用名\t包名} 数组。
+     * 分组 = 桌面文件夹（container 被其它条目引用的正数 _id）+「桌面」+「Dock」。
+     * 只返回能解析出包名的应用/快捷方式条目（文件夹本身不算应用）。
+     */
+    static Result listGroups(Context ctx) {
+        File dir = primaryDbDir(ctx);
+        String dbName = currentDbName(ctx);
+        if (dir == null || dbName == null) {
+            return new Result(false, "找不到桌面数据库", null, null);
+        }
+        SQLiteDatabase db = null;
+        try {
+            db = SQLiteDatabase.openDatabase(new File(dir, dbName).getAbsolutePath(), null,
+                    SQLiteDatabase.OPEN_READONLY);
+            if (!hasTable(db, "favorites")) {
+                return new Result(false, "主库无 favorites 表", null, null);
+            }
+            List<String> cols = tableColumns(db, "favorites");
+            List<String> want = new ArrayList<>();
+            for (String c : new String[]{"_id", "title", "intent", "container", "itemType",
+                    "screen", "cellX", "cellY"}) {
+                if (cols.contains(c)) {
+                    want.add(c);
+                }
+            }
+            if (!want.contains("_id") || !want.contains("container")) {
+                return new Result(false, "favorites 表缺 _id/container 列", null, null);
+            }
+            StringBuilder sql = new StringBuilder("SELECT ");
+            for (int i = 0; i < want.size(); i++) {
+                if (i > 0) {
+                    sql.append(',');
+                }
+                sql.append(want.get(i));
+            }
+            sql.append(" FROM favorites");
+            List<FavRow> rows = new ArrayList<>();
+            Cursor c = null;
+            try {
+                c = db.rawQuery(sql.toString(), null);
+                int iId = want.indexOf("_id");
+                int iTitle = want.indexOf("title");
+                int iIntent = want.indexOf("intent");
+                int iCont = want.indexOf("container");
+                int iType = want.indexOf("itemType");
+                int iScreen = want.indexOf("screen");
+                int iX = want.indexOf("cellX");
+                int iY = want.indexOf("cellY");
+                while (c.moveToNext()) {
+                    FavRow r = new FavRow();
+                    r.id = c.getLong(iId);
+                    r.title = iTitle >= 0 ? c.getString(iTitle) : null;
+                    r.intent = iIntent >= 0 ? c.getString(iIntent) : null;
+                    r.container = c.getLong(iCont);
+                    r.itemType = iType >= 0 ? c.getInt(iType) : 0;
+                    r.screen = iScreen >= 0 ? c.getInt(iScreen) : 0;
+                    r.cellX = iX >= 0 ? c.getInt(iX) : 0;
+                    r.cellY = iY >= 0 ? c.getInt(iY) : 0;
+                    rows.add(r);
+                }
+            } finally {
+                if (c != null) {
+                    c.close();
+                }
+            }
+            // 文件夹 = 被其它条目当 container 引用的正数 _id
+            java.util.Set<Long> ids = new java.util.HashSet<>();
+            for (FavRow r : rows) {
+                ids.add(r.id);
+            }
+            java.util.Set<Long> folderIds = new java.util.HashSet<>();
+            for (FavRow r : rows) {
+                if (r.container > 0 && ids.contains(r.container)) {
+                    folderIds.add(r.container);
+                }
+            }
+            java.util.Map<Long, FavRow> byId = new java.util.HashMap<>();
+            for (FavRow r : rows) {
+                byId.put(r.id, r);
+            }
+            // 分组名 + 排序键（文件夹按桌面位置排，与显示一致）
+            java.util.Map<String, int[]> groupOrder = new java.util.HashMap<>();
+            java.util.Map<String, String> groupName = new java.util.HashMap<>();
+            for (Long fid : folderIds) {
+                FavRow f = byId.get(fid);
+                String name = (f != null && f.title != null && !f.title.trim().isEmpty())
+                        ? f.title.trim() : ("文件夹 " + fid);
+                groupName.put(String.valueOf(fid), name);
+                groupOrder.put(String.valueOf(fid),
+                        new int[]{f == null ? 0 : f.screen, f == null ? 0 : f.cellY,
+                                f == null ? 0 : f.cellX});
+            }
+            // 收集应用
+            List<String[]> apps = new ArrayList<>(); // [groupKey, groupName, title, pkg, screen, cellY, cellX]
+            for (FavRow r : rows) {
+                if (folderIds.contains(r.id)) {
+                    continue; // 文件夹本身不是应用
+                }
+                if (r.itemType == 2) {
+                    continue; // 文件夹类型
+                }
+                String pkg = parsePackage(r.intent);
+                if (pkg == null || pkg.isEmpty()) {
+                    continue;
+                }
+                String gKey;
+                String gName;
+                if (folderIds.contains(r.container)) {
+                    gKey = String.valueOf(r.container);
+                    gName = groupName.get(gKey);
+                } else if (r.container == -100) {
+                    gKey = "desktop";
+                    gName = "桌面";
+                } else if (r.container == -101) {
+                    gKey = "dock";
+                    gName = "Dock";
+                } else {
+                    gKey = "other";
+                    gName = "其它";
+                }
+                String title = (r.title != null && !r.title.trim().isEmpty())
+                        ? r.title.trim() : pkg;
+                apps.add(new String[]{gKey, gName, title, pkg,
+                        String.valueOf(r.screen), String.valueOf(r.cellY), String.valueOf(r.cellX)});
+            }
+            // 分组排序：桌面在前，其次文件夹按位置，Dock/其它在后
+            final java.util.Map<String, int[]> order = groupOrder;
+            Collections.sort(apps, (a, b) -> {
+                int ga = groupRank(a[0], order);
+                int gb = groupRank(b[0], order);
+                if (ga != gb) {
+                    return Integer.compare(ga, gb);
+                }
+                int[] oa = order.get(a[0]);
+                int[] ob = order.get(b[0]);
+                if (oa != null && ob != null) {
+                    for (int i = 0; i < 3; i++) {
+                        if (oa[i] != ob[i]) {
+                            return Integer.compare(oa[i], ob[i]);
+                        }
+                    }
+                }
+                int cmpScreen = Integer.compare(Integer.parseInt(a[4]), Integer.parseInt(b[4]));
+                if (cmpScreen != 0) {
+                    return cmpScreen;
+                }
+                int cmpCell = Integer.compare(Integer.parseInt(a[5]), Integer.parseInt(b[5]));
+                if (cmpCell != 0) {
+                    return cmpCell;
+                }
+                return a[2].compareTo(b[2]);
+            });
+            List<String> out = new ArrayList<>();
+            for (String[] a : apps) {
+                out.add(cleanField(a[1]) + "\t" + cleanField(a[2]) + "\t" + a[3]);
+            }
+            if (out.isEmpty()) {
+                return new Result(false, "桌面上没有可提取的应用", null, null);
+            }
+            return new Result(true, "共 " + out.size() + " 个应用",
+                    null, out.toArray(new String[0]));
+        } catch (Throwable t) {
+            Bridge.log(Log.WARN, Const.TAG, "分组列表读取失败: " + t);
+            return new Result(false, "读取分组失败: " + t, null, null);
+        } finally {
+            if (db != null) {
+                try {
+                    db.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    private static int groupRank(String key, java.util.Map<String, int[]> order) {
+        if ("desktop".equals(key)) {
+            return 0;
+        }
+        if ("dock".equals(key)) {
+            return 90;
+        }
+        if ("other".equals(key)) {
+            return 99;
+        }
+        return 10; // 文件夹
+    }
+
+    private static String cleanField(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+    }
+
+    /** 从 favorites.intent 解析包名（Intent URI 的 component= 部分）。 */
+    private static String parsePackage(String intentStr) {
+        if (intentStr == null || intentStr.isEmpty()) {
+            return null;
+        }
+        try {
+            Intent it = Intent.parseUri(intentStr, Intent.URI_INTENT_SCHEME);
+            if (it != null && it.getComponent() != null) {
+                return it.getComponent().getPackageName();
+            }
+        } catch (Throwable ignored) {
+        }
+        // 回退：手动找 component=包名/...
+        try {
+            int i = intentStr.indexOf("component=");
+            if (i >= 0) {
+                String rest = intentStr.substring(i + "component=".length());
+                int slash = rest.indexOf('/');
+                if (slash > 0) {
+                    return rest.substring(0, slash);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     // =====================================================================

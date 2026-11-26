@@ -18,17 +18,18 @@ public final class MainActivity extends BaseActivity {
 
     static final int TAB_HOME = 0;
     static final int TAB_BACKUP = 1;
-    static final int TAB_SETTINGS = 2;
+    static final int TAB_EXTRACT = 2;
+    static final int TAB_SETTINGS = 3;
 
     private static final int[] TAB_ICON = {
-            R.drawable.ic_home, R.drawable.ic_box, R.drawable.ic_tune
+            R.drawable.ic_home, R.drawable.ic_box, R.drawable.ic_list, R.drawable.ic_tune
     };
-    private static final String[] TAB_NAME = {"主页", "备份", "设置"};
+    private static final String[] TAB_NAME = {"主页", "备份", "提取", "设置"};
 
     private FrameLayout mContent;
-    private final Page[] mPages = new Page[3];
-    private final ImageView[] mNavIcons = new ImageView[3];
-    private final TextView[] mNavLabels = new TextView[3];
+    private final Page[] mPages = new Page[4];
+    private final ImageView[] mNavIcons = new ImageView[4];
+    private final TextView[] mNavLabels = new TextView[4];
     private TextView mBadge;
     private int mTab = TAB_HOME;
 
@@ -63,6 +64,7 @@ public final class MainActivity extends BaseActivity {
 
         mPages[TAB_HOME] = new PageHome(this);
         mPages[TAB_BACKUP] = new PageBackup(this);
+        mPages[TAB_EXTRACT] = new PageExtract(this);
         mPages[TAB_SETTINGS] = new PageSettings(this);
         showTab(TAB_HOME);
         // 权限门禁覆盖层：三项全过前挡住主界面与底部导航
@@ -111,7 +113,7 @@ public final class MainActivity extends BaseActivity {
 
         LinearLayout bar = UiKit.row(this);
         bar.setPadding(0, UiKit.dp(this, 4), 0, UiKit.dp(this, 4));
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             final int t = i;
             LinearLayout item = UiKit.column(this);
             item.setGravity(Gravity.CENTER);
@@ -157,7 +159,7 @@ public final class MainActivity extends BaseActivity {
     }
 
     void showTab(int t) {
-        if (t < 0 || t > 2) {
+        if (t < 0 || t > 3) {
             return;
         }
         mTab = t;
@@ -168,7 +170,7 @@ public final class MainActivity extends BaseActivity {
         }
         mContent.addView(v, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             final boolean sel = (i == t);
             mNavIcons[i].setColorFilter(sel ? Theme.primary : Theme.onSurfaceVariant,
                     PorterDuff.Mode.SRC_IN);
@@ -242,6 +244,13 @@ public final class MainActivity extends BaseActivity {
     protected void onDirPicked(String path) {
         if (mTab >= 0 && mTab < mPages.length && mPages[mTab] != null) {
             mPages[mTab].onDirPicked(path);
+        }
+    }
+
+    @Override
+    protected void onExtractDirPicked(android.net.Uri uri) {
+        if (mTab >= 0 && mTab < mPages.length && mPages[mTab] != null) {
+            mPages[mTab].onExtractDirPicked(uri);
         }
     }
 

@@ -56,6 +56,8 @@ public final class LauncherReceiver extends BroadcastReceiver {
             op = Const.OP_DROP_GHOST;
         } else if (Const.ACTION_RECOVER_GHOST.equals(action)) {
             op = Const.OP_RECOVER_GHOST;
+        } else if (Const.ACTION_GROUPS.equals(action)) {
+            op = Const.OP_GROUPS;
         } else {
             return;
         }
@@ -112,6 +114,12 @@ public final class LauncherReceiver extends BroadcastReceiver {
                         String[] grids = BackupEngine.backupGrids(dirs);
                         Bridge.replyEx(op, token, true,
                                 "共 " + dirs.length + " 个备份", dirs, grids, null);
+                        return;
+                    }
+
+                    if (Const.OP_GROUPS.equals(op)) {
+                        BackupEngine.Result r = BackupEngine.listGroups(app);
+                        Bridge.reply(op, token, r.ok, r.message, r.items, null);
                         return;
                     }
 

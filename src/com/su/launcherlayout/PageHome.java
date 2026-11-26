@@ -404,7 +404,11 @@ final class PageHome extends Page {
             final String name = items[0];
             String g = host.grids.containsKey(name) ? host.grids.get(name) : "通用";
             boolean same = g.equals(host.currentGrid);
-            col.addView(UiKit.rowTitle(host, UiKit.prettyTime(name)));
+            String rel = UiKit.relativeTime(name);
+            String title = "【最新备份】" + UiKit.prettyTime(name) + (rel.isEmpty() ? "" : (" (" + rel + ")"));
+            TextView tvTitle = UiKit.rowTitle(host, title);
+            tvTitle.setTextColor(Theme.primary);
+            col.addView(tvTitle);
             TextView s = UiKit.rowSummary(host, "网格 " + g
                     + (same ? "  ✓ 与当前一致" : "  ⚠️ 与当前不一致（当前 " + host.currentGrid + "）"));
             if (!same) {

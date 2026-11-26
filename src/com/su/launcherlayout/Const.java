@@ -45,6 +45,8 @@ public final class Const {
     public static final String ACTION_DROP_GHOST = "com.su.launcherlayout.action.DROP_GHOST";
     /** 找回隐藏安全备份（去掉名字前面的点，转成一份正常可见的备份）。 */
     public static final String ACTION_RECOVER_GHOST = "com.su.launcherlayout.action.RECOVER_GHOST";
+    /** 列出桌面分组（文件夹）与应用，供分组提取 APK。 */
+    public static final String ACTION_GROUPS = "com.su.launcherlayout.action.GROUPS";
 
     /** 桌面进程 -> 模块 App 的回执。 */
     public static final String ACTION_RESULT = "com.su.launcherlayout.action.RESULT";
@@ -90,4 +92,5 @@ public final class Const {
     public static final String OP_DELETE_ALL = "deleteall";
     public static final String OP_DROP_GHOST = "dropghost";
     public static final String OP_RECOVER_GHOST = "recoverghost";
+    public static final String OP_GROUPS = "groups";
 }
