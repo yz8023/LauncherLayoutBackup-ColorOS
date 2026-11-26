@@ -96,6 +96,19 @@ abstract class BaseActivity extends Activity {
             final String[] items = intent.getStringArrayExtra(Const.EX_ITEMS);
             final String[] gridArr = intent.getStringArrayExtra(Const.EX_GRIDS);
 
+            // 连通性测试：只写延迟，不进 onResult
+            if (Const.OP_PING.equals(op)) {
+                long ms = mPingAt <= 0 ? -1 : (System.currentTimeMillis() - mPingAt);
+                UiLog.log(ok
+                        ? "✅ 桌面进程响应正常，往返 " + ms + " ms"
+                        : "❌ 桌面进程拒绝响应：" + (msg == null ? "" : msg));
+                if (ms > 2000) {
+                    UiLog.log("   往返偏慢，说明广播被排在后台队列里（本次是重发后才送达）");
+                }
+                UiLog.save(BaseActivity.this);
+                return;
+            }
+
             if (items != null && carriesConfig(op)) {
                 absorbConfig(items);
             }
@@ -217,12 +230,36 @@ abstract class BaseActivity extends Activity {
         dispatch(i, action, false);
     }
 
-    /** 统一出口：装 token、装包名、起超时、发广播。 */
+    /**
+     * 统一出口：装 token、装包名、起超时、发广播。
+     *
+     * <p>关键点（ColorOS 上超时的元凶）：
+     * <ul>
+     *   <li>{@link Intent#FLAG_RECEIVER_FOREGROUND} —— 不加这个标志，发给「已退到后台的桌面进程」
+     *       的广播会被塞进系统的<b>后台广播队列</b>，序列化排队 + 批处理，动辄十几秒才派发，
+     *       于是我们 9 秒就判超时了。加了标志走前台队列，通常几十毫秒就到。</li>
+     *   <li>首次超时自动重发一次 —— 桌面进程被 ColorOS 冻结（cgroup freezer）时第一条广播会被
+     *       压在队列里，重发往往能把它唤醒，所以别急着报错。</li>
+     * </ul>
+     */
     protected void dispatch(Intent i, String action, boolean quiet) {
+        send(i, action, quiet, 0);
+    }
+
+    /** 首轮等这么久就重发一次；桌面醒着的话往返通常 < 300ms。 */
+    private static final long TIMEOUT_FIRST_MS = 3500L;
+
+    private long mPingAt;
+    private long mLastTimeoutLogAt;
+    private int mSuppressedTimeout;
+
+    private void send(Intent template, final String action, final boolean quiet, final int attempt) {
         final String token = String.valueOf(mToken.getAndIncrement());
-        armTimeout(token, false);
+        final Intent i = new Intent(template);
         i.putExtra(Const.EX_TOKEN, token);
         i.setPackage(Const.TARGET_PKG);
+        i.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        armTimeout(token, i, action, attempt);
         try {
             sendBroadcast(i);
         } catch (Throwable t) {
@@ -234,20 +271,66 @@ abstract class BaseActivity extends Activity {
         }
     }
 
-    protected void armTimeout(final String token, final boolean restart) {
+    private void armTimeout(final String token, final Intent template, final String action,
+                            final int attempt) {
         Runnable r = new Runnable() {
             @Override
             public void run() {
                 mPending.remove(token);
-                UiLog.log("⚠️ 请求超时，桌面进程无响应");
-                onTimeout();
-                if (restart) {
-                    confirmRootRestart();
+                if (attempt == 0) {
+                    // 不打扰用户：静默重发一次（覆盖后台队列 / 进程被冻结两种情况）
+                    send(template, action, false, attempt + 1);
+                    return;
                 }
+                logTimeout(action);
+                onTimeout();
             }
         };
         mPending.put(token, r);
-        H.postDelayed(r, TIMEOUT_MS);
+        H.postDelayed(r, attempt == 0 ? TIMEOUT_FIRST_MS : TIMEOUT_MS);
+    }
+
+    /** 合并刷屏：短时间内多个请求一起超时时，只写一条，其余计数后补一行。 */
+    private void logTimeout(String action) {
+        long now = System.currentTimeMillis();
+        if (now - mLastTimeoutLogAt < 2500L) {
+            mSuppressedTimeout++;
+            return;
+        }
+        mLastTimeoutLogAt = now;
+        StringBuilder s = new StringBuilder("⚠️ 请求超时：")
+                .append(label(action)).append(" —— 桌面进程无响应（已自动重发 1 次）");
+        if (mSuppressedTimeout > 0) {
+            s.append("；其间另有 ").append(mSuppressedTimeout).append(" 个请求超时");
+            mSuppressedTimeout = 0;
+        }
+        UiLog.log(s.toString());
+    }
+
+    private static String label(String action) {
+        if (Const.ACTION_BACKUP.equals(action)) return "备份";
+        if (Const.ACTION_RESTORE.equals(action)) return "恢复";
+        if (Const.ACTION_LIST.equals(action)) return "读取备份列表";
+        if (Const.ACTION_PING.equals(action)) return "连通性测试";
+        if (Const.ACTION_RESTART.equals(action)) return "重启桌面";
+        if (Const.ACTION_INFO.equals(action)) return "读取桌面信息";
+        if (Const.ACTION_FILES.equals(action)) return "列出备份文件";
+        if (Const.ACTION_GET_CONFIG.equals(action)) return "读取设置";
+        if (Const.ACTION_SET_CONFIG.equals(action)) return "保存设置";
+        if (Const.ACTION_SET_ROOT.equals(action)) return "保存备份路径";
+        if (Const.ACTION_SET_EXTRA.equals(action)) return "保存附加设置";
+        if (Const.ACTION_DELETE_ALL.equals(action)) return "删除全部备份";
+        if (Const.ACTION_DROP_GHOST.equals(action)) return "丢弃安全备份";
+        if (Const.ACTION_RECOVER_GHOST.equals(action)) return "找回安全备份";
+        if (Const.ACTION_GROUPS.equals(action)) return "读取桌面分组";
+        return action;
+    }
+
+    /** 显式测一次往返延迟，用来判断「是慢」还是「真的没注入」。 */
+    protected void pingBridge() {
+        mPingAt = System.currentTimeMillis();
+        UiLog.log("▶ 测试桌面连接…");
+        request(Const.ACTION_PING, null);
     }
 
     protected boolean isPending(String token) {
@@ -257,10 +340,20 @@ abstract class BaseActivity extends Activity {
     /** 重启桌面进程；若模块还没注入（广播无人接），超时后会自动给出 root 兜底选项。 */
     protected void restartLauncher() {
         final String token = "restart-" + System.currentTimeMillis();
-        armTimeout(token, true);
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                mPending.remove(token);
+                logTimeout(Const.ACTION_RESTART);
+                confirmRootRestart();
+            }
+        };
+        mPending.put(token, r);
+        H.postDelayed(r, TIMEOUT_MS);
         Intent i = new Intent(Const.ACTION_RESTART);
         i.putExtra(Const.EX_TOKEN, token);
         i.setPackage(Const.TARGET_PKG);
+        i.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
         try {
             sendBroadcast(i);
         } catch (Throwable t) {
@@ -633,6 +726,21 @@ abstract class BaseActivity extends Activity {
                 .show();
     }
 
+    /** 读取子进程输出。 */
+    static String readAll(java.io.InputStream in) {
+        try {
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bos.write(buf, 0, n);
+            }
+            return new String(bos.toByteArray(), "UTF-8");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     /** su 可执行文件候选（KernelSU / APatch / Magisk / 传统路径）。 */
     protected static String[] suCandidates() {
         return new String[]{
@@ -645,6 +753,50 @@ abstract class BaseActivity extends Activity {
                 "/sbin/su",
                 "/debug_ramdisk/su",
         };
+    }
+
+    /**
+     * 用 root 把桌面「拉回前台一瞬间」再立刻回到本 App。
+     *
+     * <p>用途：ColorOS 会把退到后台的桌面进程整个冻结（cgroup freezer），
+     * 冻结期间谁也递不进广播；把它短暂置前台能解除冻结，之后广播立刻可达。
+     */
+    protected void wakeLauncher() {
+        UiLog.log("尝试唤醒桌面进程（屏幕会闪一下）…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String out = "";
+                int code = -1;
+                for (String su : suCandidates()) {
+                    try {
+                        java.lang.Process p = Runtime.getRuntime().exec(new String[]{su, "-c",
+                                "am start -a android.intent.action.MAIN -c android.intent.category.HOME;"
+                                        + "sleep 1;"
+                                        + "am start -n " + Const.MODULE_PKG + "/.MainActivity"});
+                        out = readAll(p.getInputStream());
+                        code = p.waitFor();
+                        break;
+                    } catch (Throwable t) {
+                        out = String.valueOf(t);
+                    }
+                }
+                final int c = code;
+                final String o = out;
+                H.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        UiLog.log("唤醒桌面: exit=" + c + (o.trim().isEmpty() ? "" : " " + o.trim()));
+                        H.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                pingBridge();
+                            }
+                        }, 1200L);
+                    }
+                });
+            }
+        }, "llb-wake").start();
     }
 
     protected void rootRestart() {

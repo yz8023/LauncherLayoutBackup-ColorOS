@@ -52,6 +52,7 @@ final class Bridge {
         filter.addAction(Const.ACTION_DELETE_ALL);
         filter.addAction(Const.ACTION_DROP_GHOST);
         filter.addAction(Const.ACTION_RECOVER_GHOST);
+        filter.addAction(Const.ACTION_GROUPS);
 
         registerExported(sAppCtx, receiver, filter);
         log(Log.INFO, Const.TAG, "桥已就绪，广播接收器已注册（uid=" + android.os.Process.myUid() + "）");
@@ -128,6 +129,9 @@ final class Bridge {
         try {
             Intent i = new Intent(Const.ACTION_RESULT);
             i.setPackage(Const.MODULE_PKG);
+            // 回执也要走前台队列：否则 App 明明在前台，回执却被排在后台队列里，
+            // 表现就是「桌面明明处理完了，App 还在报超时」。
+            i.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
             i.putExtra(Const.EX_OP, op);
             i.putExtra(Const.EX_TOKEN, token);
             i.putExtra(Const.EX_OK, ok);

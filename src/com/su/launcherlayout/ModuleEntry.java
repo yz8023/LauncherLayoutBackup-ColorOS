@@ -47,8 +47,14 @@ public final class ModuleEntry extends XposedModule {
         final String pkg = param.getPackageName();
         Log.i(Const.TAG, "onPackageReady: " + pkg + " first=" + param.isFirstPackage());
 
-        // 只在「ColorOS 桌面的主进程」里干活，其余一律断开后续回调。
-        if (!Const.TARGET_PKG.equals(pkg) || !Const.TARGET_PKG.equals(mProcessName)) {
+        // 只在「ColorOS 桌面的主进程」里干活（容忍冒号子进程，只要以 com.android.launcher 开头）
+        if (!Const.TARGET_PKG.equals(pkg)) {
+            detach();
+            return;
+        }
+        if (mProcessName != null && !mProcessName.isEmpty()
+                && !Const.TARGET_PKG.equals(mProcessName)
+                && !mProcessName.startsWith(Const.TARGET_PKG + ":")) {
             detach();
             return;
         }
@@ -115,24 +121,53 @@ public final class ModuleEntry extends XposedModule {
         }
         mHooked = true;
 
-        final Method onCreate = Application.class.getMethod("onCreate");
-        hook(onCreate)
-                .setId("llb-application-oncreate")
-                .setPriority(PRIORITY_DEFAULT)
-                .setExceptionMode(ExceptionMode.PROTECTIVE)
-                .intercept(chain -> {
-                    Object result = chain.proceed();
-                    try {
-                        Object self = chain.getThisObject();
-                        if (self instanceof Context) {
-                            Bridge.install((Context) self, ModuleEntry.this);
+        // 1. Hook Application.onCreate
+        try {
+            final Method onCreate = Application.class.getMethod("onCreate");
+            hook(onCreate)
+                    .setId("llb-application-oncreate")
+                    .setPriority(PRIORITY_DEFAULT)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        try {
+                            Object self = chain.getThisObject();
+                            if (self instanceof Context) {
+                                Bridge.install((Context) self, ModuleEntry.this);
+                            }
+                        } catch (Throwable t) {
+                            log(Log.ERROR, Const.TAG, "Bridge.install on Application.onCreate 失败", t);
                         }
-                    } catch (Throwable t) {
-                        log(Log.ERROR, Const.TAG, "Bridge.install 失败", t);
-                    }
-                    return result;
-                });
+                        return result;
+                    });
+            log(Log.INFO, Const.TAG, "已 hook Application.onCreate in " + Const.TARGET_PKG);
+        } catch (Throwable t) {
+            log(Log.WARN, Const.TAG, "hook Application.onCreate 异常: " + t);
+        }
 
-        log(Log.INFO, Const.TAG, "已 hook Application.onCreate in " + Const.TARGET_PKG);
+        // 2. 双保险：若存在特定 LauncherApplication 子类，尝试 hook 它的 onCreate
+        try {
+            Class<?> customApp = Class.forName("com.android.common.LauncherApplication", false,
+                    Thread.currentThread().getContextClassLoader());
+            Method customOnCreate = customApp.getDeclaredMethod("onCreate");
+            hook(customOnCreate)
+                    .setId("llb-custom-app-oncreate")
+                    .setPriority(PRIORITY_DEFAULT)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        try {
+                            Object self = chain.getThisObject();
+                            if (self instanceof Context) {
+                                Bridge.install((Context) self, ModuleEntry.this);
+                            }
+                        } catch (Throwable t) {
+                            log(Log.ERROR, Const.TAG, "Bridge.install on LauncherApplication 失败", t);
+                        }
+                        return result;
+                    });
+            log(Log.INFO, Const.TAG, "已 hook LauncherApplication.onCreate");
+        } catch (Throwable ignored) {
+        }
     }
 }

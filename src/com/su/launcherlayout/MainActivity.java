@@ -397,19 +397,6 @@ public final class MainActivity extends BaseActivity {
         }, "llb-gate-root").start();
     }
 
-    private static String readAll(java.io.InputStream in) {
-        try {
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                bos.write(buf, 0, n);
-            }
-            return bos.toString("UTF-8");
-        } catch (Throwable t) {
-            return "";
-        }
-    }
 
     private void updateGateFromResult(String op, boolean ok, String msg) {
         if (!isGateShowing()) {

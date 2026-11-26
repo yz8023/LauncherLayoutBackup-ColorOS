@@ -163,6 +163,32 @@ final class PageSettings extends Page {
         restartCard.addView(restartIn);
         c.addView(restartCard, UiKit.full(host, 8, 0));
 
+        // ---------- 桌面连接诊断（超时排查） ----------
+        c.addView(section("桌面连接诊断"));
+        LinearLayout diagCard = UiKit.card(host);
+        LinearLayout diagIn = UiKit.column(host);
+        UiKit.pad(host, diagIn, 16, 14, 14);
+        diagIn.addView(UiKit.rowSummary(host,
+                "连不上桌面 / 一直提示「请求超时」时，先点「测试连接」看往返延迟：\n"
+                        + "· 有回包但几百 ms 以上 → 广播被排在后台队列，已在后台重发兜住；\n"
+                        + "· 完全无回包 → 桌面进程被系统冻结或模块未注入，点「唤醒桌面」再测。"));
+        LinearLayout dBtns = UiKit.row(host);
+        dBtns.addView(UiKit.filled(host, "测试连接", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                host.pingBridge();
+            }
+        }), UiKit.weight(host, 1f, 0, 4));
+        dBtns.addView(UiKit.subtle(host, "唤醒桌面", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                host.wakeLauncher();
+            }
+        }), UiKit.weight(host, 1f, 4, 0));
+        diagIn.addView(dBtns, UiKit.full(host, 10, 0));
+        diagCard.addView(diagIn);
+        c.addView(diagCard, UiKit.full(host, 8, 0));
+
         // ---------- 关于 ----------
         c.addView(section("关于"));
         LinearLayout about = UiKit.card(host);
