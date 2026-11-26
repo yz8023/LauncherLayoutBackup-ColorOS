@@ -2017,7 +2017,10 @@ final class BackupEngine {
             });
             List<String> out = new ArrayList<>();
             for (String[] a : apps) {
-                out.add(cleanField(a[1]) + "\t" + cleanField(a[2]) + "\t" + a[3]);
+                // 4th = 分组唯一键（文件夹 id / desktop / dock / other）：同名文件夹靠它区分，
+                // 5th = 所在屏序号（同名时用来提示「第几屏」）
+                out.add(cleanField(a[1]) + "\t" + cleanField(a[2]) + "\t" + a[3]
+                        + "\t" + a[0] + "\t" + a[4]);
             }
             if (out.isEmpty()) {
                 return new Result(false, "桌面上没有可提取的应用", null, null);

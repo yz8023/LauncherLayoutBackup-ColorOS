@@ -59,7 +59,12 @@ final class PageExtract extends Page {
     private static final String DEFAULT_PATH = "/storage/emulated/0/Download";
 
     static final class AppItem {
+        /** 分组唯一键：文件夹 id / desktop / dock / other —— 同名文件夹靠它区分。 */
+        String groupKey;
+        /** 分组显示名（可能与别的分组同名）。 */
         String group;
+        /** 所在屏序号（0 起）。 */
+        int screen;
         /** 界面上显示的名字（优先系统本地化名称，和桌面一致）。 */
         String title;
         /** 桌面数据库里存的标注（可能和系统名称不同，仅作参考展示）。 */
@@ -71,6 +76,8 @@ final class PageExtract extends Page {
     private final LinkedHashMap<String, List<AppItem>> mGroups = new LinkedHashMap<>();
     /** 默认全部折叠：只展开用户点开的分组。 */
     private final HashSet<String> mExpanded = new HashSet<>();
+    /** 分组键 -> 显示标签（同名文件夹会带上「第 N 屏」或序号，保证可区分）。 */
+    private final HashMap<String, String> mGroupLabel = new HashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, Drawable> mIconCache =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final ExecutorService mIconPool = Executors.newFixedThreadPool(2);
@@ -321,17 +328,28 @@ final class PageExtract extends Page {
                 it.group = parts[0];
                 it.dbTitle = parts[1];
                 it.pkg = parts[2];
+                // 第 4 列是分组唯一键（旧版没有 -> 退回用名字，保持兼容）
+                it.groupKey = (parts.length > 3 && !parts[3].trim().isEmpty())
+                        ? parts[3].trim() : parts[0];
+                it.screen = 0;
+                if (parts.length > 4) {
+                    try {
+                        it.screen = Integer.parseInt(parts[4].trim());
+                    } catch (Throwable ignored) {
+                    }
+                }
                 it.title = preferDesktopName(it.pkg, it.dbTitle);
                 it.checked = false;      // 默认全部不选
-                List<AppItem> list = mGroups.get(it.group);
+                List<AppItem> list = mGroups.get(it.groupKey);
                 if (list == null) {
                     list = new ArrayList<>();
-                    mGroups.put(it.group, list);
+                    mGroups.put(it.groupKey, list);
                 }
                 list.add(it);
             }
         }
         mLoaded = true;
+        buildGroupLabels();
         rebuildList();
         updateStatus();
     }
@@ -355,6 +373,58 @@ final class PageExtract extends Page {
 
     // ================================================================== 列表
 
+    /**
+     * 给每个分组键算一个显示标签。
+     *
+     * <p>桌面上经常有**多个同名文件夹**（比如两个都叫「工具」），必须靠 folder id 区分；
+     * 显示时如果名字重复，就用「第 N 屏」或序号标出来，否则用户根本分不清哪个是哪个。
+     */
+    private void buildGroupLabels() {
+        mGroupLabel.clear();
+        HashMap<String, Integer> nameCount = new HashMap<>();
+        for (List<AppItem> l : mGroups.values()) {
+            if (l.isEmpty()) {
+                continue;
+            }
+            String n = l.get(0).group;
+            Integer c = nameCount.get(n);
+            nameCount.put(n, c == null ? 1 : c + 1);
+        }
+        HashMap<String, Integer> used = new HashMap<>();
+        for (String key : mGroups.keySet()) {
+            List<AppItem> l = mGroups.get(key);
+            if (l.isEmpty()) {
+                continue;
+            }
+            String base = l.get(0).group;
+            int multi = nameCount.get(base) == null ? 1 : nameCount.get(base);
+            if (multi <= 1) {
+                mGroupLabel.put(key, base);
+                continue;
+            }
+            Integer u = used.get(base);
+            int seq = (u == null ? 1 : u + 1);
+            used.put(base, seq);
+            // 有屏号就写「第 N 屏」，更直观；同时附序号保证唯一
+            String label = base + "（第" + (l.get(0).screen + 1) + "屏·" + seq + "）";
+            mGroupLabel.put(key, label);
+        }
+    }
+
+    private String groupLabel(String key) {
+        String s = mGroupLabel.get(key);
+        if (s != null) {
+            return s;
+        }
+        List<AppItem> l = mGroups.get(key);
+        return (l == null || l.isEmpty()) ? key : l.get(0).group;
+    }
+
+    /** 每个分组的独立文件夹名（同名分组自动加后缀，避免两个文件夹的文件混在一起）。 */
+    private String groupDirName(String key) {
+        return sanitize(groupLabel(key));
+    }
+
     private void rebuildList() {
         mList.removeAllViews();
         for (final String group : mGroups.keySet()) {
@@ -370,7 +440,7 @@ final class PageExtract extends Page {
             TextView caret = UiKit.text(host, expanded ? "▾" : "▸", Theme.onSurfaceVariant, 14f);
             head.addView(caret, UiKit.wrap(host, 0, 8));
             head.addView(UiKit.rowTitle(host,
-                    group + "（" + apps.size() + (selectedIn(apps) > 0
+                    groupLabel(group) + "（" + apps.size() + (selectedIn(apps) > 0
                             ? "，已选 " + selectedIn(apps) : "") + "）"), UiKit.weight(host, 1f, 0, 0));
             head.addView(UiKit.mini(host, "整组选/取消", new View.OnClickListener() {
                 @Override
@@ -555,7 +625,7 @@ final class PageExtract extends Page {
                             continue;
                         }
                         String where = writeTo(uriStr, new File(apkPath), name,
-                                perGroup ? sanitize(it.group) : null, it);
+                                perGroup ? groupDirName(it.groupKey) : null, it);
                         appendLog("✓ " + it.title + " → " + name);
                         if (where != null && !where.isEmpty()) {
                             appendLog("   " + where);
