@@ -131,6 +131,13 @@ final class PageExtract extends Page {
             public void onClick(View v) {
                 setAllChecked(false);
             }
+        }), UiKit.weight(host, 1f, 5, 5));
+        bar.addView(UiKit.mini(host, "导出表结构", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mStatus.setText("正在读取数据库表结构…");
+                host.request(Const.ACTION_SCHEMA, null);
+            }
         }), UiKit.weight(host, 1f, 5, 0));
         box.addView(bar, UiKit.full(host, 0, 8));
 
@@ -152,6 +159,45 @@ final class PageExtract extends Page {
         return scroll;
     }
 
+    /** 表结构报告：可全选复制，直接发回给作者就能一次改对。 */
+    private void showSchemaDialog(String[] lines) {
+        final String text = joinLines(lines);
+        ScrollView sv = new ScrollView(host);
+        TextView tv = UiKit.mono(host, text, Theme.onSurface, 10.5f);
+        tv.setTextIsSelectable(true);
+        UiKit.pad(host, tv, 12, 12, 12);
+        sv.addView(tv);
+        new android.app.AlertDialog.Builder(host)
+                .setTitle("桌面数据库表结构")
+                .setView(sv)
+                .setPositiveButton("复制全部", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int w) {
+                        try {
+                            android.content.ClipboardManager cm =
+                                    (android.content.ClipboardManager)
+                                            host.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                            if (cm != null) {
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("schema", text));
+                            }
+                            host.toast("已复制，粘贴发回即可");
+                        } catch (Throwable t) {
+                            host.toast("复制失败：" + t);
+                        }
+                    }
+                })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private static String joinLines(String[] lines) {
+        StringBuilder sb = new StringBuilder();
+        for (String l : lines) {
+            sb.append(l).append('\n');
+        }
+        return sb.toString();
+    }
+
     @Override
     void onShow() {
         if (!mLoaded) {
@@ -161,6 +207,15 @@ final class PageExtract extends Page {
 
     @Override
     void onResult(String op, boolean ok, String msg, String dir, String[] items, String[] grids) {
+        if (Const.OP_SCHEMA.equals(op)) {
+            if (!ok || items == null) {
+                mStatus.setText("读取表结构失败：" + (msg == null ? "" : msg));
+                return;
+            }
+            mStatus.setText("表结构已读取（" + items.length + " 行）");
+            showSchemaDialog(items);
+            return;
+        }
         if (!Const.OP_GROUPS.equals(op)) {
             return;
         }

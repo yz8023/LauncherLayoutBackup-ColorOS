@@ -53,6 +53,7 @@ final class Bridge {
         filter.addAction(Const.ACTION_DROP_GHOST);
         filter.addAction(Const.ACTION_RECOVER_GHOST);
         filter.addAction(Const.ACTION_GROUPS);
+        filter.addAction(Const.ACTION_SCHEMA);
 
         registerExported(sAppCtx, receiver, filter);
         log(Log.INFO, Const.TAG, "桥已就绪，广播接收器已注册（uid=" + android.os.Process.myUid() + "）");

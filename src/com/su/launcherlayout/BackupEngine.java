@@ -1628,60 +1628,295 @@ final class BackupEngine {
      * 分组 = 桌面文件夹（container 被其它条目引用的正数 _id）+「桌面」+「Dock」。
      * 只返回能解析出包名的应用/快捷方式条目（文件夹本身不算应用）。
      */
+
+    // ---- 条目表识别（不写死 favorites：ColorOS 各版本表名/列名都不一样） ----
+
+    private static final String[] CAND_ID = {"_id", "id", "itemId", "item_id"};
+    private static final String[] CAND_TITLE = {"title", "name", "displayName", "display_name",
+            "label", "appName", "app_name"};
+    private static final String[] CAND_INTENT = {"intent", "intentUri", "intent_uri",
+            "componentName", "component_name", "component", "cmp"};
+    private static final String[] CAND_CONTAINER = {"container", "containerId", "container_id",
+            "parentId", "parent_id", "parent", "folderId", "folder_id"};
+    private static final String[] CAND_TYPE = {"itemType", "item_type", "type"};
+    private static final String[] CAND_SCREEN = {"screen", "screenId", "screen_id", "page",
+            "pageIndex", "page_index", "screenRank"};
+    private static final String[] CAND_X = {"cellX", "cell_x", "cellx", "posX", "pos_x",
+            "column", "col"};
+    private static final String[] CAND_Y = {"cellY", "cell_y", "celly", "posY", "pos_y",
+            "row"};
+
+    /** 解析出来的「桌面条目表」——哪个库、哪张表、每列叫什么。 */
+    static final class ItemSchema {
+        File dbFile;
+        String table;
+        String cId;
+        String cTitle;
+        String cIntent;
+        String cContainer;
+        String cType;
+        String cScreen;
+        String cX;
+        String cY;
+        int score;
+
+        String where() {
+            return dbFile.getName() + " / " + table;
+        }
+    }
+
+    /** 在候选列名里挑一个真实存在的列（大小写不敏感）。 */
+    private static String pickCol(List<String> cols, String[] cands) {
+        for (String cand : cands) {
+            for (String c : cols) {
+                if (c != null && c.equalsIgnoreCase(cand)) {
+                    return c;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 模糊列名匹配（fuzzy 里任一片段出现在列名中就命中）。 */
+    private static String pickColFuzzy(List<String> cols, String[] fuzzy) {
+        for (String f : fuzzy) {
+            for (String c : cols) {
+                if (c != null && c.toLowerCase().contains(f)) {
+                    return c;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static List<String> tableNames(SQLiteDatabase db) {
+        List<String> out = new ArrayList<>();
+        Cursor c = null;
+        try {
+            c = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'", null);
+            while (c.moveToNext()) {
+                String n = c.getString(0);
+                if (n != null && !n.startsWith("sqlite_")) {
+                    out.add(n);
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (c != null) {
+                c.close();
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 跨【所有 .db】寻找「桌面条目表」。
+     *
+     * <p>ColorOS 不同版本的库名、表名、列名都不同（favorites / iteminfo / homeitem…），
+     * 所以这里不写死任何名字：只要求「有主键列 + 有 container 列 + 有组件列」，
+     * 再按表名/额外列打分挑最像的那张。
+     */
+    static ItemSchema resolveItemSchema(File dir) {
+        if (dir == null) {
+            return null;
+        }
+        ItemSchema best = null;
+        for (File f : listDbFiles(dir)) {
+            SQLiteDatabase db = null;
+            try {
+                db = SQLiteDatabase.openDatabase(f.getAbsolutePath(), null,
+                        SQLiteDatabase.OPEN_READONLY);
+                for (String t : tableNames(db)) {
+                    if ("android_metadata".equals(t)) {
+                        continue;
+                    }
+                    List<String> cols = tableColumns(db, t);
+                    if (cols.isEmpty()) {
+                        continue;
+                    }
+                    String id = pickCol(cols, CAND_ID);
+                    String cont = pickCol(cols, CAND_CONTAINER);
+                    if (cont == null) {
+                        cont = pickColFuzzy(cols, new String[]{"container", "folderid", "parent"});
+                    }
+                    String intent = pickCol(cols, CAND_INTENT);
+                    if (intent == null) {
+                        intent = pickColFuzzy(cols, new String[]{"intent", "component"});
+                    }
+                    // 三个必需列：主键、容器（决定分组）、组件（决定包名）
+                    if (id == null || cont == null || intent == null) {
+                        continue;
+                    }
+                    String low = t.toLowerCase();
+                    int score = 10;
+                    if (low.contains("favorit")) {
+                        score += 12;
+                    }
+                    if (low.contains("item")) {
+                        score += 6;
+                    }
+                    if (low.contains("home") || low.contains("desktop")
+                            || low.contains("workspace")) {
+                        score += 5;
+                    }
+                    if (pickCol(cols, CAND_SCREEN) != null) {
+                        score += 3;
+                    }
+                    if (pickCol(cols, CAND_X) != null) {
+                        score += 2;
+                    }
+                    if (best == null || score > best.score) {
+                        ItemSchema s = new ItemSchema();
+                        s.dbFile = f;
+                        s.table = t;
+                        s.cId = id;
+                        s.cTitle = pickCol(cols, CAND_TITLE);
+                        s.cIntent = intent;
+                        s.cContainer = cont;
+                        s.cType = pickCol(cols, CAND_TYPE);
+                        s.cScreen = pickCol(cols, CAND_SCREEN);
+                        s.cX = pickCol(cols, CAND_X);
+                        s.cY = pickCol(cols, CAND_Y);
+                        s.score = score;
+                        best = s;
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (db != null) {
+                    try {
+                        db.close();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 全部数据库的表结构报告 —— 认不出条目表时让用户一键复制发回来，
+     * 有这份东西就能一次改对，不用来回猜。
+     */
+    static String schemaReport(Context ctx) {
+        File dir = primaryDbDir(ctx);
+        StringBuilder sb = new StringBuilder();
+        sb.append("== 桌面数据库结构报告 ==\n");
+        if (dir == null) {
+            sb.append("找不到数据库目录\n");
+            return sb.toString();
+        }
+        sb.append("目录: ").append(dir.getAbsolutePath()).append('\n');
+        ItemSchema s = resolveItemSchema(dir);
+        sb.append("识别到的条目表: ").append(s == null ? "(无)" : s.where()).append('\n');
+        if (s != null) {
+            sb.append("列映射: id=").append(s.cId).append(" title=").append(s.cTitle)
+                    .append(" intent=").append(s.cIntent).append(" container=").append(s.cContainer)
+                    .append(" type=").append(s.cType).append(" screen=").append(s.cScreen)
+                    .append(" x=").append(s.cX).append(" y=").append(s.cY).append('\n');
+        }
+        List<File> dbs = listDbFiles(dir);
+        sb.append("库文件数: ").append(dbs.size()).append('\n');
+        for (File f : dbs) {
+            sb.append("\n[").append(f.getName()).append("] ").append(f.length()).append(" bytes\n");
+            SQLiteDatabase db = null;
+            try {
+                db = SQLiteDatabase.openDatabase(f.getAbsolutePath(), null,
+                        SQLiteDatabase.OPEN_READONLY);
+                for (String t : tableNames(db)) {
+                    List<String> cols = tableColumns(db, t);
+                    long n = -1;
+                    Cursor c = null;
+                    try {
+                        c = db.rawQuery("SELECT COUNT(*) FROM \"" + t + "\"", null);
+                        if (c.moveToFirst()) {
+                            n = c.getLong(0);
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        if (c != null) {
+                            c.close();
+                        }
+                    }
+                    sb.append("  - ").append(t).append(" (").append(n).append(" 行): ");
+                    for (int i = 0; i < cols.size(); i++) {
+                        if (i > 0) {
+                            sb.append(", ");
+                        }
+                        sb.append(cols.get(i));
+                    }
+                    sb.append('\n');
+                }
+            } catch (Throwable t) {
+                sb.append("  读取失败: ").append(t).append('\n');
+            } finally {
+                if (db != null) {
+                    try {
+                        db.close();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            if (sb.length() > 12000) {
+                sb.append("…(已截断)");
+                return sb.toString();
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 列出桌面分组与应用：返回 items 为 {@code 分组名\t应用名\t包名} 数组。
+     * 分组 = 桌面文件夹（container 被其它条目引用的正数 id）+「桌面」+「Dock」。
+     */
     static Result listGroups(Context ctx) {
         File dir = primaryDbDir(ctx);
-        String dbName = currentDbName(ctx);
-        if (dir == null || dbName == null) {
-            return new Result(false, "找不到桌面数据库", null, null);
+        if (dir == null) {
+            return new Result(false, "找不到桌面数据库目录", null, null);
         }
+        ItemSchema s = resolveItemSchema(dir);
+        if (s == null) {
+            int n = listDbFiles(dir).size();
+            Bridge.log(Log.WARN, Const.TAG, "未识别到桌面条目表，共 " + n + " 个库");
+            return new Result(false, "认不出桌面的条目表（已扫描 " + n
+                    + " 个库，均无「主键 + container + 组件」三列俱全的表）\n"
+                    + "点右上角「导出表结构」复制发我，我照着改", null, null);
+        }
+        Bridge.log(Log.INFO, Const.TAG, "条目表: " + s.where() + " 列: id=" + s.cId
+                + " title=" + s.cTitle + " intent=" + s.cIntent + " container=" + s.cContainer);
+
         SQLiteDatabase db = null;
         try {
-            db = SQLiteDatabase.openDatabase(new File(dir, dbName).getAbsolutePath(), null,
+            db = SQLiteDatabase.openDatabase(s.dbFile.getAbsolutePath(), null,
                     SQLiteDatabase.OPEN_READONLY);
-            if (!hasTable(db, "favorites")) {
-                return new Result(false, "主库无 favorites 表", null, null);
-            }
-            List<String> cols = tableColumns(db, "favorites");
-            List<String> want = new ArrayList<>();
-            for (String c : new String[]{"_id", "title", "intent", "container", "itemType",
-                    "screen", "cellX", "cellY"}) {
-                if (cols.contains(c)) {
-                    want.add(c);
-                }
-            }
-            if (!want.contains("_id") || !want.contains("container")) {
-                return new Result(false, "favorites 表缺 _id/container 列", null, null);
-            }
             StringBuilder sql = new StringBuilder("SELECT ");
-            for (int i = 0; i < want.size(); i++) {
-                if (i > 0) {
-                    sql.append(',');
-                }
-                sql.append(want.get(i));
+            sql.append(s.cId).append(" AS c_id");
+            sql.append(", ").append(s.cTitle == null ? "NULL" : s.cTitle).append(" AS c_title");
+            sql.append(", ").append(s.cIntent).append(" AS c_intent");
+            sql.append(", ").append(s.cContainer).append(" AS c_container");
+            sql.append(", ").append(s.cType == null ? "0" : s.cType).append(" AS c_type");
+            sql.append(", ").append(s.cScreen == null ? "0" : s.cScreen).append(" AS c_screen");
+            sql.append(", ").append(s.cX == null ? "0" : s.cX).append(" AS c_x");
+            sql.append(", ").append(s.cY == null ? "0" : s.cY).append(" AS c_y");
+            sql.append(" FROM ").append(s.table);
+            if (s.cIntent == null) {
+                return new Result(false, "条目表没有组件列", null, null);
             }
-            sql.append(" FROM favorites");
+
             List<FavRow> rows = new ArrayList<>();
             Cursor c = null;
             try {
                 c = db.rawQuery(sql.toString(), null);
-                int iId = want.indexOf("_id");
-                int iTitle = want.indexOf("title");
-                int iIntent = want.indexOf("intent");
-                int iCont = want.indexOf("container");
-                int iType = want.indexOf("itemType");
-                int iScreen = want.indexOf("screen");
-                int iX = want.indexOf("cellX");
-                int iY = want.indexOf("cellY");
                 while (c.moveToNext()) {
                     FavRow r = new FavRow();
-                    r.id = c.getLong(iId);
-                    r.title = iTitle >= 0 ? c.getString(iTitle) : null;
-                    r.intent = iIntent >= 0 ? c.getString(iIntent) : null;
-                    r.container = c.getLong(iCont);
-                    r.itemType = iType >= 0 ? c.getInt(iType) : 0;
-                    r.screen = iScreen >= 0 ? c.getInt(iScreen) : 0;
-                    r.cellX = iX >= 0 ? c.getInt(iX) : 0;
-                    r.cellY = iY >= 0 ? c.getInt(iY) : 0;
+                    r.id = c.getLong(0);
+                    r.title = c.isNull(1) ? null : c.getString(1);
+                    r.intent = c.isNull(2) ? null : c.getString(2);
+                    r.container = c.isNull(3) ? 0 : c.getLong(3);
+                    r.itemType = c.isNull(4) ? 0 : c.getInt(4);
+                    r.screen = c.isNull(5) ? 0 : c.getInt(5);
+                    r.cellX = c.isNull(6) ? 0 : c.getInt(6);
+                    r.cellY = c.isNull(7) ? 0 : c.getInt(7);
                     rows.add(r);
                 }
             } finally {
@@ -1689,6 +1924,10 @@ final class BackupEngine {
                     c.close();
                 }
             }
+            if (rows.isEmpty()) {
+                return new Result(false, "条目表 " + s.table + " 是空的（读到了 0 行）", null, null);
+            }
+
             // 文件夹 = 被其它条目当 container 引用的正数 _id
             java.util.Set<Long> ids = new java.util.HashSet<>();
             for (FavRow r : rows) {
@@ -1783,7 +2022,7 @@ final class BackupEngine {
             if (out.isEmpty()) {
                 return new Result(false, "桌面上没有可提取的应用", null, null);
             }
-            return new Result(true, "共 " + out.size() + " 个应用",
+            return new Result(true, "共 " + out.size() + " 个应用（条目表 " + s.table + "）",
                     null, out.toArray(new String[0]));
         } catch (Throwable t) {
             Bridge.log(Log.WARN, Const.TAG, "分组列表读取失败: " + t);
@@ -1838,6 +2077,20 @@ final class BackupEngine {
                 int slash = rest.indexOf('/');
                 if (slash > 0) {
                     return rest.substring(0, slash);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // 回退：整串就是 ComponentName（有些库的 component 列直接存 pkg/cls）
+        try {
+            String t = intentStr.trim();
+            if (t.indexOf("://") < 0 && t.indexOf(' ') < 0 && !t.startsWith("component=")) {
+                int slash = t.indexOf('/');
+                if (slash > 0) {
+                    String pkg = t.substring(0, slash).trim();
+                    if (pkg.indexOf('.') > 0 && pkg.matches("[A-Za-z0-9_.]+")) {
+                        return pkg;
+                    }
                 }
             }
         } catch (Throwable ignored) {
