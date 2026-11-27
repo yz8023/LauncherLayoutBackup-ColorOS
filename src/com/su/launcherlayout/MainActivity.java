@@ -16,6 +16,9 @@ import android.widget.TextView;
  */
 public final class MainActivity extends BaseActivity {
 
+    /** 门禁规则版本：改了检查项就 +1，老用户会重新走一次。 */
+    private static final int GATE_VERSION = 1;
+
     static final int TAB_HOME = 0;
     static final int TAB_BACKUP = 1;
     static final int TAB_EXTRACT = 2;
@@ -48,6 +51,15 @@ public final class MainActivity extends BaseActivity {
     private boolean mGateDirOk;
     private boolean mGateRootChecking;
     private boolean mGateLsposedChecking = true;
+
+    // ------------------------------------------------------------------ 门禁记忆
+    // 通过一次就记下来，之后启动直接进主界面（后台静默复核），不再每次都拦一遍。
+    private static final String PREFS = "llb_app";
+    private static final String KEY_GATE_AT = "gate_passed_at";
+    private static final String KEY_GATE_VERSION = "gate_version";
+    /** 静默复核连续失败几次才重新弹出检查页。 */
+    private static final int SILENT_FAIL_LIMIT = 2;
+    private int mSilentFails;
 
     @Override
     protected View buildContentView() {
@@ -96,8 +108,55 @@ public final class MainActivity extends BaseActivity {
     @Override
     protected void afterCreate() {
         tuneWindow();
+        if (gatePassedBefore()) {
+            // 以前全部通过过：直接进主界面，后台静默复核一次。
+            mGate.setVisibility(View.GONE);
+            request(Const.ACTION_INFO, null);
+        } else {
+            startGateChecks();
+            request(Const.ACTION_INFO, null);
+        }
+    }
+
+    // ------------------------------------------------------------------ 门禁记忆实现
+
+    private android.content.SharedPreferences appPrefs() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE);
+    }
+
+    /** 之前是否已经通过过检查（且是同一版本的门禁规则）。 */
+    private boolean gatePassedBefore() {
+        long at = appPrefs().getLong(KEY_GATE_AT, 0);
+        int ver = appPrefs().getInt(KEY_GATE_VERSION, 0);
+        return at > 0 && ver == GATE_VERSION;
+    }
+
+    private void rememberGatePass() {
+        appPrefs().edit().putLong(KEY_GATE_AT, System.currentTimeMillis())
+                .putInt(KEY_GATE_VERSION, GATE_VERSION).apply();
+    }
+
+    private void forgetGatePass() {
+        appPrefs().edit().remove(KEY_GATE_AT).apply();
+    }
+
+    /** 设置页的「重新检查使用条件」：忘掉通过记录，重新走一遍。 */
+    void recheckGate() {
+        forgetGatePass();
+        mGate.setVisibility(View.VISIBLE);
         startGateChecks();
         request(Const.ACTION_INFO, null);
+    }
+
+    /** 静默复核失败到阈值：把检查页重新亮出来，并说明发生了什么。 */
+    private void revealGate(String why) {
+        if (isGateShowing()) {
+            return;
+        }
+        forgetGatePass();
+        mGate.setVisibility(View.VISIBLE);
+        startGateChecks();
+        UiLog.log("⚠️ 复核未通过（" + why + "），已打开检查页");
     }
 
     // ------------------------------------------------------------------ 底部导航
@@ -207,6 +266,12 @@ public final class MainActivity extends BaseActivity {
                             String[] items, String[] grids) {
         if (Const.OP_INFO.equals(op) && ok) {
             currentGrid = UiKit.parseGrid(dir);
+            mSilentFails = 0;
+        } else if (Const.OP_INFO.equals(op) && !ok && !isGateShowing()) {
+            mSilentFails++;
+            if (mSilentFails >= SILENT_FAIL_LIMIT) {
+                revealGate("桌面进程拒绝响应");
+            }
         }
         updateGateFromResult(op, ok, msg);
         // 只分发给**当前页**。
@@ -220,6 +285,12 @@ public final class MainActivity extends BaseActivity {
 
     @Override
     protected void onTimeout() {
+        if (!isGateShowing()) {
+            mSilentFails++;
+            if (mSilentFails >= SILENT_FAIL_LIMIT) {
+                revealGate("桌面进程无响应");
+            }
+        }
         if (isGateShowing()) {
             mGateLsposedChecking = false;
             mGateLsposedOk = false;
@@ -458,7 +529,8 @@ public final class MainActivity extends BaseActivity {
         }
         if (mGateRootOk && mGateLsposedOk && mGateDirOk) {
             mGate.setVisibility(View.GONE);
-            UiLog.log("✅ 权限检测全部通过，进入主界面");
+            rememberGatePass();          // 记住：以后启动不再拦
+            UiLog.log("✅ 权限检测全部通过，进入主界面（以后启动不再重复检查）");
             showTab(TAB_HOME);
         }
     }

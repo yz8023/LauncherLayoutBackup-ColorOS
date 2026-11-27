@@ -138,56 +138,51 @@ final class PageSettings extends Page {
                 }));
         c.addView(credit, UiKit.full(host, 8, 0));
 
-        // ---------- 桌面与热加载 ----------
-        c.addView(section("桌面生效与重启"));
+        // ---------- 桌面与连接（重启 / 检查，全 App 只此一处） ----------
+        c.addView(section("桌面进程"));
         LinearLayout restartCard = UiKit.card(host);
         LinearLayout restartIn = UiKit.column(host);
         UiKit.pad(host, restartIn, 16, 14, 14);
-        restartIn.addView(UiKit.rowSummary(host, "模块更新后无需重启手机！只需让桌面进程重新加载即可热生效。"));
+        restartIn.addView(UiKit.rowSummary(host,
+                "模块更新后不用重启手机：重启一次桌面进程即可热生效。\n"
+                        + "连不上桌面时也是先点这里。"));
         LinearLayout rBtns = UiKit.row(host);
-        rBtns.addView(UiKit.filled(host, "热重载：快速重启桌面", new View.OnClickListener() {
+        rBtns.addView(UiKit.filled(host, "重启桌面进程", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                UiLog.log("▶ 请求重启桌面进程（热重载模块）");
-                host.request(Const.ACTION_RESTART, null);
+                UiLog.log("▶ 重启桌面进程（热重载）");
+                // 广播重启失败会自动提示改用 root 强停，不用用户自己选
+                host.restartLauncher();
             }
-        }), UiKit.weight(host, 1f, 0, 4));
-        rBtns.addView(UiKit.subtle(host, "Root 强制停止桌面", new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                UiLog.log("▶ 执行 root 强杀桌面进程");
-                host.rootRestart();
-            }
-        }), UiKit.weight(host, 1f, 4, 0));
-        restartIn.addView(rBtns, UiKit.full(host, 10, 0));
-        restartCard.addView(restartIn);
-        c.addView(restartCard, UiKit.full(host, 8, 0));
-
-        // ---------- 桌面连接诊断（超时排查） ----------
-        c.addView(section("桌面连接诊断"));
-        LinearLayout diagCard = UiKit.card(host);
-        LinearLayout diagIn = UiKit.column(host);
-        UiKit.pad(host, diagIn, 16, 14, 14);
-        diagIn.addView(UiKit.rowSummary(host,
-                "连不上桌面 / 一直提示「请求超时」时，先点「测试连接」看往返延迟：\n"
-                        + "· 有回包但几百 ms 以上 → 广播被排在后台队列，已在后台重发兜住；\n"
-                        + "· 完全无回包 → 桌面进程被系统冻结或模块未注入，点「唤醒桌面」再测。"));
-        LinearLayout dBtns = UiKit.row(host);
-        dBtns.addView(UiKit.filled(host, "测试连接", new View.OnClickListener() {
+        }), UiKit.weight(host, 1f, 0, 5));
+        rBtns.addView(UiKit.subtle(host, "检查连接", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 host.pingBridge();
             }
-        }), UiKit.weight(host, 1f, 0, 4));
-        dBtns.addView(UiKit.subtle(host, "唤醒桌面", new View.OnClickListener() {
+        }), UiKit.weight(host, 1f, 5, 0));
+        restartIn.addView(rBtns, UiKit.full(host, 12, 0));
+        restartIn.addView(UiKit.text(host,
+                "返回日志里会显示往返延迟：几十~几百 ms 属正常；长时间无回包说明桌面进程被冻结或模块未注入。",
+                Theme.onSurfaceVariant, 11f), UiKit.full(host, 10, 0));
+        restartCard.addView(restartIn);
+        c.addView(restartCard, UiKit.full(host, 8, 0));
+
+        // ---------- 使用前检查 ----------
+        c.addView(section("使用前检查"));
+        LinearLayout chkCard = UiKit.card(host);
+        LinearLayout chkIn = UiKit.column(host);
+        UiKit.pad(host, chkIn, 16, 14, 14);
+        chkIn.addView(UiKit.rowSummary(host,
+                "检查通过一次后不会再重复拦截；只有复核失败时才会自动弹出检查页。"));
+        chkIn.addView(UiKit.subtle(host, "重新走一遍检查", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                host.wakeLauncher();
+                host.recheckGate();
             }
-        }), UiKit.weight(host, 1f, 4, 0));
-        diagIn.addView(dBtns, UiKit.full(host, 10, 0));
-        diagCard.addView(diagIn);
-        c.addView(diagCard, UiKit.full(host, 8, 0));
+        }), UiKit.full(host, 10, 0));
+        chkCard.addView(chkIn);
+        c.addView(chkCard, UiKit.full(host, 8, 0));
 
         // ---------- 关于 ----------
         c.addView(section("关于"));

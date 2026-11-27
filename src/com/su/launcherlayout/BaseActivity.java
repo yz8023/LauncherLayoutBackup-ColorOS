@@ -323,7 +323,6 @@ abstract class BaseActivity extends Activity {
         if (Const.ACTION_DROP_GHOST.equals(action)) return "丢弃安全备份";
         if (Const.ACTION_RECOVER_GHOST.equals(action)) return "找回安全备份";
         if (Const.ACTION_GROUPS.equals(action)) return "读取桌面分组";
-        if (Const.ACTION_SCHEMA.equals(action)) return "导出表结构";
         return action;
     }
 

@@ -166,66 +166,60 @@ final class PageBackup extends Page {
             return position;
         }
 
+        /**
+         * 每条备份一张卡：
+         * 第一行 = 时间 + 「最新」胶囊，
+         * 第二行 = 相对时间 · 网格一致性，
+         * 右侧 = 恢复。
+         *
+         * <p>备份数量是十几到几十条，直接每次建视图（不做 convertView 复用），
+         * 省掉原来那套「按固定子节点位置回填」的脆弱写法。
+         */
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            LinearLayout row;
-            TextView t1;
-            TextView t2;
-            if (convertView instanceof LinearLayout) {
-                row = (LinearLayout) convertView;
-                LinearLayout col = (LinearLayout) row.getChildAt(0);
-                t1 = (TextView) col.getChildAt(0);
-                t2 = (TextView) col.getChildAt(1);
-            } else {
-                row = UiKit.row(host);
-                row.setBackground(UiKit.round(host, Theme.card, Theme.R_CARD));
-                UiKit.pad(host, row, 16, 14, 14);
-                row.setElevation(UiKit.dp(host, 0.5f));
-
-                LinearLayout col = UiKit.column(host);
-                t1 = UiKit.rowTitle(host, "");
-                t2 = UiKit.rowSummary(host, "");
-                t2.setPadding(0, UiKit.dp(host, 3), 0, 0);
-                col.addView(t1);
-                col.addView(t2);
-                row.addView(col, UiKit.weight(host, 1f, 0, 8));
-
-                row.addView(UiKit.mini(host, "恢复", null));
-            }
-
             final String name = mDirs[position];
             final boolean newest = (position == 0);
             final String g = host.grids.containsKey(name) ? host.grids.get(name) : "通用";
             final boolean same = g.equals(host.currentGrid);
 
-            String rel = UiKit.relativeTime(name);
-            String badge = newest ? "【最新备份】" : ("#" + (position + 1));
-            String timeStr = UiKit.prettyTime(name);
-            if (!rel.isEmpty()) {
-                timeStr = timeStr + " (" + rel + ")";
-            }
+            LinearLayout card = UiKit.column(host);
+            card.setBackground(UiKit.round(host,
+                    newest ? (Theme.dark ? 0xFF20281E : 0xFFF0F8EC) : Theme.card, Theme.R_CARD));
+            UiKit.pad(host, card, 16, 13, 13);
 
-            t1.setText(badge + " " + timeStr);
+            LinearLayout top = UiKit.row(host);
+            TextView when = UiKit.text(host, UiKit.prettyTime(name), Theme.onSurface, 14.5f);
+            when.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
+                    newest ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL));
+            top.addView(when, UiKit.wrap(host, 0, 8));
+
             if (newest) {
-                t1.setTextColor(Theme.primary);
-                t1.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
-            } else {
-                t1.setTextColor(Theme.onSurface);
-                t1.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
+                TextView pill = UiKit.text(host, "最新", Theme.onPrimary, 10.5f);
+                pill.setBackground(UiKit.round(host, Theme.primary, Theme.R_PILL));
+                pill.setPadding(UiKit.dp(host, 8), UiKit.dp(host, 3),
+                        UiKit.dp(host, 8), UiKit.dp(host, 3));
+                top.addView(pill);
             }
-
-            String gridText = "网格: " + g + (same ? " · 与当前布局一致" : " · ⚠️ 与当前网格不一致");
-            t2.setText(gridText);
-            t2.setTextColor(same ? Theme.onSurfaceVariant : Theme.error);
-
-            // ListView 复用，监听器每次重设（只剩一个按钮：恢复）
-            row.getChildAt(1).setOnClickListener(new View.OnClickListener() {
+            top.addView(new LinearLayout(host), UiKit.weight(host, 1f, 0, 8));
+            top.addView(UiKit.mini(host, "恢复", new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     host.startRestoreFlow(name);
                 }
-            });
-            return row;
+            }));
+            card.addView(top);
+
+            LinearLayout meta = UiKit.row(host);
+            String rel = UiKit.relativeTime(name);
+            TextView m1 = UiKit.text(host, (rel.isEmpty() ? "" : rel + " · ")
+                    + "网格 " + g + (same ? " ✓" : " ≠ " + host.currentGrid),
+                    same ? Theme.onSurfaceVariant : Theme.error, 11.5f);
+            meta.addView(m1, UiKit.weight(host, 1f, 0, 0));
+            meta.addView(UiKit.text(host, "#" + (position + 1), Theme.onSurfaceVariant, 10.5f));
+            meta.setPadding(0, UiKit.dp(host, 3), 0, 0);
+            card.addView(meta);
+
+            return card;
         }
     }
 }
