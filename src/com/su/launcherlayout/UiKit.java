@@ -159,8 +159,12 @@ final class UiKit {
     static LinearLayout card(Context c) {
         LinearLayout v = new LinearLayout(c);
         v.setOrientation(LinearLayout.VERTICAL);
-        v.setBackground(round(c, Theme.card, Theme.R_CARD));
-        v.setElevation(dp(c, 0.5f));
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.RECTANGLE);
+        g.setColor(Theme.card);
+        g.setCornerRadius(dp(c, Theme.R_CARD));
+        g.setStroke(Math.max(1, dp(c, 0.7f)), Theme.outline);
+        v.setBackground(g);
         v.setClipToOutline(true);
         return v;
     }
@@ -181,8 +185,9 @@ final class UiKit {
 
     /** 页面大标题（仿 KernelSU 那个大标题）。 */
     static TextView pageTitle(Context c, String s) {
-        TextView v = text(c, s, Theme.onSurface, 30f);
-        v.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        TextView v = text(c, s, Theme.onSurface, 26f);
+        v.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        v.setLetterSpacing(-0.01f);
         return v;
     }
 
@@ -195,8 +200,9 @@ final class UiKit {
     }
 
     static TextView sectionLabel(Context c, String s) {
-        TextView v = text(c, s, Theme.primary, 13f);
+        TextView v = text(c, s, Theme.onSurfaceVariant, 11.5f);
         v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        v.setLetterSpacing(0.06f);
         return v;
     }
 

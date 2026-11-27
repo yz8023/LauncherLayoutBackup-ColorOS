@@ -49,7 +49,7 @@ echo "=== 2) aapt2 link（同时生成 R.java） ==="
   "$OUT/res.zip" \
   --java "$OUT/gen" \
   --min-sdk-version 26 --target-sdk-version 29 \
-  --version-code 38 --version-name 1.2.0
+  --version-code 39 --version-name 1.2.1
 find "$OUT/gen" -name '*.java'
 
 echo

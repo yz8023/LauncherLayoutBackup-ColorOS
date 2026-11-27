@@ -26,12 +26,14 @@ final class Theme {
     static int onSurface;
     static int onSurfaceVariant;
     static int outlineVariant;
+    /** 卡片描边用的细线色（比 outlineVariant 更淡一档）。 */
 
     static int card;          // 卡片底色
     static int page;          // 页面底色
     static int nav;           // 底栏底色
     static int error;
     static int ok;
+    static int outline;
 
     /** Miuix / M3 圆角。 */
     static final int R_CARD = 18;
@@ -47,33 +49,35 @@ final class Theme {
                 & Configuration.UI_MODE_NIGHT_MASK;
         dark = (mode == Configuration.UI_MODE_NIGHT_YES);
         if (dark) {
-            primary = 0xFF86D794;
-            onPrimary = 0xFF00390F;
-            primaryContainer = 0xFF0B4A20;
-            onPrimaryContainer = 0xFFA2F5AF;
-            page = 0xFF11140F;
-            surface = 0xFF11140F;
-            onSurface = 0xFFE1E4DA;
-            onSurfaceVariant = 0xFFC2C9BC;
-            card = 0xFF1D211A;
-            nav = 0xFF191D17;
-            outlineVariant = 0xFF424940;
+            primary = 0xFF7FD68F;
+            onPrimary = 0xFF04340F;
+            primaryContainer = 0xFF11331B;
+            onPrimaryContainer = 0xFFB7F0C2;
+            page = 0xFF101310;
+            surface = 0xFF101310;
+            onSurface = 0xFFE6E9E2;
+            onSurfaceVariant = 0xFFA8B0A4;
+            card = 0xFF1B1F1A;
+            nav = 0xFF151814;
+            outlineVariant = 0xFF2C312A;
+            outline = 0xFF272C25;
             error = 0xFFFFB4AB;
-            ok = 0xFF86D794;
+            ok = 0xFF7FD68F;
         } else {
-            primary = 0xFF146C2E;
+            primary = 0xFF1B6B35;
             onPrimary = 0xFFFFFFFF;
-            primaryContainer = 0xFFC6EFD0;
-            onPrimaryContainer = 0xFF06210F;
-            page = 0xFFF3F7EE;
-            surface = 0xFFFBFDF7;
-            onSurface = 0xFF191D17;
-            onSurfaceVariant = 0xFF5A6156;
+            primaryContainer = 0xFFD7F0DC;
+            onPrimaryContainer = 0xFF06280F;
+            page = 0xFFF4F6F2;
+            surface = 0xFFFFFFFF;
+            onSurface = 0xFF161A15;
+            onSurfaceVariant = 0xFF5C635A;
             card = 0xFFFFFFFF;
             nav = 0xFFFFFFFF;
-            outlineVariant = 0xFFDCE3D6;
-            error = 0xFFBA1A1A;
-            ok = 0xFF146C2E;
+            outlineVariant = 0xFFDCE1D7;
+            outline = 0xFFE6EAE1;
+            error = 0xFFB3261E;
+            ok = 0xFF1B6B35;
         }
     }
 

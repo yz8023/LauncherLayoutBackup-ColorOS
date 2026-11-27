@@ -58,6 +58,8 @@ public final class LauncherReceiver extends BroadcastReceiver {
             op = Const.OP_RECOVER_GHOST;
         } else if (Const.ACTION_GROUPS.equals(action)) {
             op = Const.OP_GROUPS;
+        } else if (Const.ACTION_SCHEMA.equals(action)) {
+            op = Const.OP_SCHEMA;
         } else {
             return;
         }
@@ -120,6 +122,13 @@ public final class LauncherReceiver extends BroadcastReceiver {
                     if (Const.OP_GROUPS.equals(op)) {
                         BackupEngine.Result r = BackupEngine.listGroups(app);
                         Bridge.reply(op, token, r.ok, r.message, r.items, null);
+                        return;
+                    }
+
+                    if (Const.OP_SCHEMA.equals(op)) {
+                        String report = BackupEngine.schemaReport(app);
+                        String[] lines = report.split("\n");
+                        Bridge.reply(Const.OP_SCHEMA, token, true, "表结构报告", lines, null);
                         return;
                     }
 
